@@ -1,12 +1,32 @@
 ---
 title: 'Homework 4: Bags, Forests, Boosts, oh my'
-author: "Your Name Goes Here"
+author: "Jason Carlson"
 date: "2/28/2019"
 output: github_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(e1071)
+library(gbm)
+library(MASS)
+library(tidyverse)
+library(broom)
+library(caret)
+library(ISLR)
+library(janitor)
+library(plotROC)
+library(kernlab)
+library(glmnet)
+library(stringr)
+library(rpart)
+library(rpart.plot)
+library(partykit) 
+library(tree)
+library(randomForest)
+theme_set(theme_bw())
 ```
 
 ## Problem 1
@@ -15,15 +35,139 @@ Problem 7 from Chapter 8 in the text. To be specific, please use a sequence of
 `ntree` from 25 to 500 in steps of 25 and `mtry` from 3 to 9 for by 1. 
 
 ## Answer 1
+```{r}
+set.seed(1234)
+df <- tbl_df(Boston)
+
+for (k in 1:20){
+  inTraining <- createDataPartition(df$medv, p = .75, list = F)
+  training <- df[inTraining, ]
+  testing <- df[-inTraining, ]
+  mtry <- c(3:9)
+  ntree <- seq(25, 500, len = 20)
+  results <- tibble(trial = rep(NA, 140),
+  mtry = rep(NA, 140),
+  ntree = rep(NA, 140),
+  mse = rep(NA, 140)) 
+  for(i in 1:7){
+    cat(sprintf('Trial: %s, mtry: %s --- %s\n', k, mtry[i], Sys.time()))
+    for(j in 1:20){ 
+      rf_train <- randomForest(medv ~ .,
+                               data = training,
+                               mtry = mtry[i],
+                               ntree = ntree[j])
+      mse <- mean((predict(rf_train, newdata = testing) - testing$medv)^2)
+      results[(i-1)*20 + j, ] <- c(k, mtry[i], ntree[j], mse)
+    }
+  }
+  if(exists("results_total")){
+  results_total <- bind_rows(results_total, results)
+  }
+  else(
+  results_total <- results
+  )
+}
+```
+
 
 ## Problem 2
+##I Dont remember some of this stuff (like the tune() stuff) so I got a lot from the internet. 
+
 
 Problem 8 from Chapter 8 in the text. Set your seed with 9823 and split into 
 train/test using 50\% of your data in each split. In addition to 
 parts (a) - (e), do the following:
+#A
+```{r}
+inTraining <- sample(nrow(OJ), 800)
+training <- OJ[inTraining, ]
+testing <- OJ[-inTraining, ]
+```
+#B
+```{r}
+purchase.svm <- svm(Purchase ~ ., data = training, kernel = "linear", cost = 0.01)
+summary(purchase.svm)
+```
+#C
+```{r}
+purchase.train.pred<- predict(purchase.svm, training)
+table(training$Purchase, purchase.train.pred)
+
+(74+57)/(436+57+74+233)
+
+purchase.test.pred<- predict(purchase.svm, testing)
+table(testing$Purchase, purchase.test.pred)
+
+(24+26)/(134+26+24+86)
+```
+#D
+```{r}
+purchase.tune <- tune(svm, Purchase ~ ., data = training, kernel = "linear", ranges = list(cost = 10^seq(-2, 1, by = 0.25)))
+summary(purchase.tune)
+```
+#E
+```{r}
+best.svc.train <- svm(Purchase ~ ., kernel = "linear", data = training, cost = purchase.tune$best.parameter$cost)
+purchase.train.pred <- predict(best.svc.train, training)
+confusionMatrix(table(training$Purchase, purchase.train.pred),positive = "CH")
+
+(75+52)/(441+52+75+232)
+
+best.svc.test <- svm(Purchase ~ ., kernel = "linear", data = testing, cost = purchase.tune$best.parameter$cost)
+purchase.test.pred <- predict(best.svc.test, testing)
+table(testing$Purchase, purchase.test.pred)
+
+confusionMatrix(table(testing$Purchase, purchase.test.pred),positive = "CH")
+
+(24+26)/(134+26+24+86)
+```
 
 1. Fit a gradient-boosted tree to the training data and report the estimated 
 test MSE. 
+```{r}
+Purchase.boost<-gbm(Purchase ~ . ,data = training,distribution = "gaussian",n.trees = 10000,
+                  shrinkage = 0.01, interaction.depth = 4)
+purchase_boost_tree <- rpart::rpart(Purchase ~ . , 
+                      data = training,
+                      control = rpart.control(minsplit = 50))
+purchase_boost_tree
+
+```
+
 2. Fit a multiple regression model to the training data and report the 
 estimated test MSE
+
+#A little confused here. What are we applying regression model to? We have been focusing on Purchase but that is classification.
+```{r}
+#Trying to debug convergence issue, but im most likely just doing this wrong
+training$Purchase=training$Purchase=="CH"
+#training[,c('SalePriceMM', 'SalePriceCH' ,'PriceDiff', 'Store7', 'ListPriceDiff')]= list(NULL)
+
+glm(Purchase ~ . , data = training,family="binomial")
+
+
+# fit_control <- trainControl(method = "repeatedcv",
+#                            number = 10, 
+#                            repeats = 10)
+# 
+# 
+# purch_mult <- train(Purchase ~ .,
+#                           data = training,
+#                           method = "svmPoly",
+#                           trControl = fit_control,
+#                           tuneGrid = expand.grid(degree = 2:4,
+#                                                  scale = c(.001, .01, .1), 
+#                                                  C = 2:8))
+# purch.mult.preds<-predict(purch_mult, newdata = testing)
+# confusionMatrix(table(purch.mult.preds, testing$Purchase), 
+#                 positive = "CH")
+
+```
+
 3. Summarize your results. 
+```{r}
+
+
+
+```
+
