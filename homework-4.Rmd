@@ -8,7 +8,7 @@ output: github_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
-```{r}
+```{r include=FALSE}
 library(e1071)
 library(gbm)
 library(MASS)
@@ -71,7 +71,7 @@ for (k in 1:20){
 
 
 ## Problem 2
-##I Dont remember some of this stuff (like the tune() stuff) so I got a lot from the internet. 
+ 
 
 
 Problem 8 from Chapter 8 in the text. Set your seed with 9823 and split into 
@@ -79,95 +79,121 @@ train/test using 50\% of your data in each split. In addition to
 parts (a) - (e), do the following:
 #A
 ```{r}
-inTraining <- sample(nrow(OJ), 800)
-training <- OJ[inTraining, ]
-testing <- OJ[-inTraining, ]
+set.seed(9823)
+df <- tbl_df(Carseats)
+inTraining <- createDataPartition(df$Sales, p = .5, list = F)
+training <- df[inTraining, ]
+testing  <- df[-inTraining, ]
+
 ```
 #B
 ```{r}
-purchase.svm <- svm(Purchase ~ ., data = training, kernel = "linear", cost = 0.01)
-summary(purchase.svm)
+carseats_tree <- rpart(Sales ~ ., data = training)
+prp(carseats_tree)
+
+summary(carseats_tree)
+
+#MSE=7.428204
 ```
 #C
 ```{r}
-purchase.train.pred<- predict(purchase.svm, training)
-table(training$Purchase, purchase.train.pred)
+fit_control <- trainControl(method = "repeatedcv",
+                           number = 10, 
+                           repeats = 10)
+cv_carseat_tree <- train(Sales ~ ., 
+                        data = training,
+                        method = "rpart2", 
+                        trControl = fit_control,
+                        tuneGrid = data.frame(maxdepth = 1:7))
+plot(cv_carseat_tree)
 
-(74+57)/(436+57+74+233)
+test_preds <- predict(cv_carseat_tree, newdata = testing)
+carseat_test_df <- testing %>%
+  mutate(y_hat = test_preds,
+         sq_err = (y_hat - Sales)^2)
+mean(carseat_test_df$sq_err)
 
-purchase.test.pred<- predict(purchase.svm, testing)
-table(testing$Purchase, purchase.test.pred)
-
-(24+26)/(134+26+24+86)
+#MSE: 4.933184
+#Cross Validation improved MSE
 ```
 #D
 ```{r}
-purchase.tune <- tune(svm, Purchase ~ ., data = training, kernel = "linear", ranges = list(cost = 10^seq(-2, 1, by = 0.25)))
-summary(purchase.tune)
+bag_carseat <- randomForest(Sales ~ ., data = training, mtry = 10, importance=TRUE)
+
+bag_preds <- predict(bag_carseat, newdata = testing)
+mean((bag_preds - testing$Sales)^2)
+#MSE: 3.073112
+
+importance(bag_carseat)
+
+#ShelveLoc and Price are the most important variables (highest %IncMSE)
 ```
 #E
 ```{r}
-best.svc.train <- svm(Purchase ~ ., kernel = "linear", data = training, cost = purchase.tune$best.parameter$cost)
-purchase.train.pred <- predict(best.svc.train, training)
-confusionMatrix(table(training$Purchase, purchase.train.pred),positive = "CH")
+mseDF<-NA
+for (i in 1:10){
+  rforest_carseats <-  randomForest(Sales ~ . , data=training, 
+                             mtry=i, ntree=500, importance=TRUE)
+  rforest_pred <-  predict(rforest_carseats, testing)
+  mseDF[i] <- mean((testing$Sales - rforest_pred)^2)
+}
 
-(75+52)/(441+52+75+232)
+bestM=which.min(mseDF)
+bestM
+mseDF[bestM]
+best_rforest_carseats <-  randomForest(Sales ~ . , data=training, 
+                             mtry=bestM, ntree=500, importance=TRUE)
+importance(best_rforest_carseats)
+#ShelveLoc and Price are still the two most important variables
 
-best.svc.test <- svm(Purchase ~ ., kernel = "linear", data = testing, cost = purchase.tune$best.parameter$cost)
-purchase.test.pred <- predict(best.svc.test, testing)
-table(testing$Purchase, purchase.test.pred)
-
-confusionMatrix(table(testing$Purchase, purchase.test.pred),positive = "CH")
-
-(24+26)/(134+26+24+86)
+#The best M varies between 7-10 (for the times I have ran the loop to find it. The best MSE I found was using M=9 resulting in MSE of 2.99
 ```
+
+
 
 1. Fit a gradient-boosted tree to the training data and report the estimated 
 test MSE. 
 ```{r}
-Purchase.boost<-gbm(Purchase ~ . ,data = training,distribution = "gaussian",n.trees = 10000,
+carseats.boost<-gbm(Sales ~ . ,data = training,distribution = "gaussian",n.trees = 10000,
                   shrinkage = 0.01, interaction.depth = 4)
-purchase_boost_tree <- rpart::rpart(Purchase ~ . , 
+carseats_boost_tree <- rpart::rpart(Sales ~ . , 
                       data = training,
                       control = rpart.control(minsplit = 50))
-purchase_boost_tree
 
+boost_preds <- predict(carseats_boost_tree, newdata = testing)
+mean((boost_preds - testing$Sales)^2)
+
+#5.428695
 ```
+
+
+
 
 2. Fit a multiple regression model to the training data and report the 
 estimated test MSE
-
-#A little confused here. What are we applying regression model to? We have been focusing on Purchase but that is classification.
 ```{r}
-#Trying to debug convergence issue, but im most likely just doing this wrong
-training$Purchase=training$Purchase=="CH"
-#training[,c('SalePriceMM', 'SalePriceCH' ,'PriceDiff', 'Store7', 'ListPriceDiff')]= list(NULL)
-
-glm(Purchase ~ . , data = training,family="binomial")
+fit_control <- trainControl(method = "repeatedcv",
+                          number = 10, 
+                           repeats = 10)
 
 
-# fit_control <- trainControl(method = "repeatedcv",
-#                            number = 10, 
-#                            repeats = 10)
-# 
-# 
-# purch_mult <- train(Purchase ~ .,
-#                           data = training,
-#                           method = "svmPoly",
-#                           trControl = fit_control,
-#                           tuneGrid = expand.grid(degree = 2:4,
-#                                                  scale = c(.001, .01, .1), 
-#                                                  C = 2:8))
-# purch.mult.preds<-predict(purch_mult, newdata = testing)
-# confusionMatrix(table(purch.mult.preds, testing$Purchase), 
-#                 positive = "CH")
-
+carseat_mult <- train(Sales ~ .,
+                          data = training,
+                          method = "svmPoly",
+                          trControl = fit_control,
+                         tuneGrid = expand.grid(degree = 2:4,
+                                                scale = c(.001, .01, .1), 
+                                                 C = 2:8))
+carseat_mult_preds<-predict(carseat_mult, newdata = testing)
 ```
+
+
 
 3. Summarize your results. 
 ```{r}
+mean((carseat_mult_preds - testing$Sales)^2)
 
-
-
+#MSE: 1.104752
+#The multiple regression model is by far the best out of all models as it has the lowest MSE (1.104752)
 ```
 
